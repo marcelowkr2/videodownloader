@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
 import { createReadStream, existsSync } from 'node:fs'
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
+import { copyFile, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { extname, join, normalize, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -29,6 +29,8 @@ const WINDOW_MS = 10 * 60 * 1000
 const JOB_TTL_MS = 20 * 60 * 1000
 const MAX_DURATION_S = Number(process.env.MAX_DURATION_S ?? 3600)
 const MAX_FILESIZE = process.env.MAX_FILESIZE ?? '700M'
+const COOKIES_FILE = process.env.COOKIES_FILE ?? '/run/secrets/cookies.txt'
+const JOB_COOKIES = 'cookies.txt'
 const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000
 
 const VIDEO_FORMATS = ['mp4', 'mkv']
@@ -117,6 +119,7 @@ function buildArgs(job: Job, url: string, mode: Mode, resolution: string, format
     '--progress-template', 'download:PROGRESS %(progress._percent_str)s',
     '--js-runtimes', 'node',
     '-o', join(job.dir, '%(title).120B.%(ext)s'),
+    ...(existsSync(join(job.dir, JOB_COOKIES)) ? ['--cookies', join(job.dir, JOB_COOKIES)] : []),
   ]
   if (mode === 'audio') {
     return ['-x', '--audio-format', format, ...common, '--', url]
@@ -152,7 +155,7 @@ function runJob(job: Job, url: string, mode: Mode, resolution: string, format: s
   child.on('close', async (code) => {
     clearTimeout(timer)
     try {
-      const files = (await readdir(job.dir)).filter((f) => !f.endsWith('.part') && !f.endsWith('.ytdl'))
+      const files = (await readdir(job.dir)).filter((f) => f !== JOB_COOKIES && !f.endsWith('.part') && !f.endsWith('.ytdl'))
       if (code === 0 && files.length > 0) {
         job.file = files[0]
         job.status = 'done'
@@ -172,6 +175,7 @@ function runJob(job: Job, url: string, mode: Mode, resolution: string, format: s
 function friendlyError(stderr: string): string {
   if (/does not pass filter|duration/i.test(stderr)) return `O vídeo é maior que o limite de ${Math.floor(MAX_DURATION_S / 60)} minutos.`
   if (/larger than max-filesize|File is larger/i.test(stderr)) return `O arquivo excede o limite de ${MAX_FILESIZE}.`
+  if (/cookies.*(expired|no longer valid)|rotated/i.test(stderr)) return 'Os cookies do servidor expiraram. Use o comando no terminal.'
   if (/sign in|bot|confirm you.re not/i.test(stderr)) return 'O YouTube bloqueou o servidor para este vídeo. Use o comando no terminal.'
   if (/private|unavailable|removed|not available/i.test(stderr)) return 'Vídeo privado ou indisponível.'
   return 'Não foi possível baixar este vídeo. Tente novamente ou use o comando no terminal.'
@@ -220,6 +224,8 @@ async function handleCreate(req: IncomingMessage, res: ServerResponse): Promise<
     createdAt: Date.now(),
   }
   jobs.set(job.id, job)
+  // cópia por job: o yt-dlp reescreve o arquivo de cookies ao terminar
+  if (existsSync(COOKIES_FILE)) await copyFile(COOKIES_FILE, join(job.dir, JOB_COOKIES))
   runJob(job, url, mode, resolution, format)
   sendJson(res, 202, { id: job.id })
 }

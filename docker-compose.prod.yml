@@ -3,6 +3,8 @@ services:
     build: .
     restart: unless-stopped
     init: true
+    volumes:
+      - ./secrets:/run/secrets:ro
     networks:
       - dokploy-network
     labels:
