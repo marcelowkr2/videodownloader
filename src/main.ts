@@ -148,6 +148,13 @@ app.innerHTML = `
         <button class="download-button" id="download-button" type="button" disabled>
           <span aria-hidden="true">⭳</span> <span id="download-label">Baixar agora</span>
         </button>
+        <div class="agent-status" id="agent-status">
+          <p id="agent-text"></p>
+          <div id="agent-install" hidden>
+            <p>Para baixar direto no seu computador, instale o agente local (uma vez, sem sudo):</p>
+            <code id="agent-command">curl -fsSL https://videodownloader.infosystema.cloud/agent/install.sh | bash</code>
+          </div>
+        </div>
         <div class="progress" id="progress" hidden>
           <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
           <p id="progress-text" role="status"></p>
@@ -194,6 +201,8 @@ const downloadLabel = getElement<HTMLSpanElement>('#download-label')
 const progressBox = getElement<HTMLDivElement>('#progress')
 const progressFill = getElement<HTMLDivElement>('#progress-fill')
 const progressText = getElement<HTMLParagraphElement>('#progress-text')
+const agentText = getElement<HTMLParagraphElement>('#agent-text')
+const agentInstall = getElement<HTMLDivElement>('#agent-install')
 const modeButtons = [...document.querySelectorAll<HTMLButtonElement>('.mode-option')]
 const videoOptions = getElement<HTMLDivElement>('#video-options')
 const audioOptions = getElement<HTMLDivElement>('#audio-options')
@@ -206,6 +215,8 @@ const playlistCheckbox = getElement<HTMLInputElement>('#include-playlist')
 
 let mode: DownloadMode = 'video'
 let downloading = false
+let agentAvailable = false
+const AGENT_URL = 'http://127.0.0.1:47890'
 let validUrl = false
 
 function shellQuote(value: string): string {
@@ -312,43 +323,75 @@ function showProgress(percent: number, text: string, isError = false): void {
 
 const sleep = (ms: number) => new Promise((done) => window.setTimeout(done, ms))
 
+async function detectAgent(): Promise<void> {
+  try {
+    const response = await fetch(`${AGENT_URL}/health`, { signal: AbortSignal.timeout(1500) })
+    const health = await response.json() as { ok?: boolean, ytdlp?: boolean }
+    agentAvailable = response.ok && health.ok === true && health.ytdlp === true
+  } catch {
+    agentAvailable = false
+  }
+  agentText.textContent = agentAvailable
+    ? '● Agente local conectado: o download será salvo no seu computador.'
+    : '○ Agente local não encontrado: o download usará o servidor, que pode ser bloqueado pelo YouTube.'
+  agentText.classList.toggle('connected', agentAvailable)
+  agentInstall.hidden = agentAvailable
+}
+
+async function fetchJson<T>(url: string, init?: RequestInit): Promise<{ ok: boolean, data: T }> {
+  const response = await fetch(url, init)
+  return { ok: response.ok, data: await response.json() as T }
+}
+
 async function startDownload(): Promise<void> {
   downloading = true
   downloadLabel.textContent = 'Baixando…'
   syncDownloadButton()
   showProgress(2, 'Iniciando…')
 
+  const useAgent = agentAvailable
+  const base = useAgent ? `${AGENT_URL}/download` : '/api/downloads'
+  const body = {
+    url: urlInput.value.trim(),
+    mode,
+    resolution: resolutionSelect.value,
+    format: mode === 'audio' ? audioFormatSelect.value : videoFormatSelect.value,
+    destination: getDestination(),
+    playlist: playlistCheckbox.checked,
+  }
+
   try {
-    const response = await fetch('/api/downloads', {
+    const created = await fetchJson<{ id?: string, error?: string }>(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url: urlInput.value.trim(),
-        mode,
-        resolution: resolutionSelect.value,
-        format: mode === 'audio' ? audioFormatSelect.value : videoFormatSelect.value,
-      }),
+      body: JSON.stringify(body),
     })
-    const created = await response.json() as { id?: string, error?: string }
-    if (!response.ok || !created.id) throw new Error(created.error ?? 'Não foi possível iniciar o download.')
+    if (!created.ok || !created.data.id) throw new Error(created.data.error ?? 'Não foi possível iniciar o download.')
+    const id = created.data.id
 
     for (;;) {
       await sleep(1000)
-      const poll = await fetch(`/api/downloads/${created.id}`)
-      const state = await poll.json() as { status?: string, progress?: number, message?: string, error?: string }
+      const poll = await fetchJson<{ status?: string, progress?: number, message?: string, path?: string, error?: string }>(`${base}/${id}`)
+      const state = poll.data
       if (!poll.ok) throw new Error(state.error ?? 'Falha ao consultar o download.')
       if (state.status === 'error') throw new Error(state.message)
       if (state.status === 'done') {
-        showProgress(100, 'Pronto! Seu download começou no navegador.')
-        const link = document.createElement('a')
-        link.href = `/api/downloads/${created.id}/file`
-        link.click()
+        if (useAgent) {
+          showProgress(100, `Pronto! Salvo em ${state.path ?? 'sua pasta'}.`)
+        } else {
+          showProgress(100, 'Pronto! Seu download começou no navegador.')
+          const link = document.createElement('a')
+          link.href = `/api/downloads/${id}/file`
+          link.click()
+        }
         break
       }
       showProgress(Math.max(2, state.progress ?? 0), `${state.message ?? 'Baixando…'} ${Math.round(state.progress ?? 0)}%`)
     }
   } catch (error) {
-    showProgress(100, error instanceof Error ? error.message : 'Erro inesperado.', true)
+    const offline = useAgent && error instanceof TypeError
+    if (offline) void detectAgent()
+    showProgress(100, offline ? 'O agente local parou de responder.' : error instanceof Error ? error.message : 'Erro inesperado.', true)
   } finally {
     downloading = false
     downloadLabel.textContent = 'Baixar agora'
@@ -407,3 +450,6 @@ copyButton.addEventListener('click', async () => {
     console.error('Falha ao copiar o comando:', error)
   }
 })
+
+void detectAgent()
+window.addEventListener('focus', () => { if (!downloading) void detectAgent() })
