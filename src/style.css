@@ -402,3 +402,33 @@ footer a { font-size: 10px; }
   footer { font-size: 9px; }
   footer a { font-size: 9px; }
 }
+
+.download-button {
+  width: 100%;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  border: 1px solid var(--green);
+  border-radius: 6px;
+  background: var(--green);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background .15s;
+}
+.download-button:hover:not(:disabled) { background: var(--green-dark); }
+.download-button:disabled { border-color: #dfe5dd; background: #e9ede7; color: #929a92; cursor: not-allowed; }
+.copy-button.secondary { background: #fff; color: var(--green); }
+.copy-button.secondary:hover:not(:disabled) { background: #f4f8f2; }
+.copy-button.secondary:disabled { background: #f3f5f1; }
+.copy-button.secondary .copy-shortcut { color: #9aa79b; }
+.copy-button.secondary.copied { background: #34704a; color: #fff; }
+.progress { margin-top: 10px; }
+.progress-bar { height: 6px; overflow: hidden; border-radius: 3px; background: #e5e9e1; }
+.progress-fill { width: 0; height: 100%; background: var(--green); transition: width .4s; }
+.progress p { margin: 6px 0 0; color: #6c776e; font-size: 10px; }
+.progress.error .progress-fill { background: #b44136; }
+.progress.error p { color: #b44136; }

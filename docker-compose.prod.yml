@@ -2,6 +2,7 @@ services:
   web:
     build: .
     restart: unless-stopped
+    init: true
     networks:
       - dokploy-network
     labels:
@@ -15,7 +16,7 @@ services:
       - traefik.http.routers.videodownloader-web.entrypoints=websecure
       - traefik.http.routers.videodownloader-web.rule=Host(`videodownloader.infosystema.cloud`)
       - traefik.http.routers.videodownloader-web.tls.certresolver=letsencrypt
-      - traefik.http.services.videodownloader-web.loadbalancer.server.port=80
+      - traefik.http.services.videodownloader-web.loadbalancer.server.port=3000
 
 networks:
   dokploy-network:

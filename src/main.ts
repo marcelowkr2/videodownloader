@@ -145,7 +145,14 @@ app.innerHTML = `
 # depois que você colar um link do YouTube.</code></pre>
         </div>
         <p class="command-error" id="command-error" role="status" hidden></p>
-        <button class="copy-button" id="copy-command" type="button" disabled>
+        <button class="download-button" id="download-button" type="button" disabled>
+          <span aria-hidden="true">⭳</span> <span id="download-label">Baixar agora</span>
+        </button>
+        <div class="progress" id="progress" hidden>
+          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+          <p id="progress-text" role="status"></p>
+        </div>
+        <button class="copy-button secondary" id="copy-command" type="button" disabled>
           <span aria-hidden="true">▣</span> <span id="copy-label">Copiar comando</span>
           <span class="copy-shortcut">CTRL + C</span>
         </button>
@@ -182,6 +189,11 @@ const commandOutput = getElement<HTMLElement>('#command-output')
 const commandError = getElement<HTMLParagraphElement>('#command-error')
 const copyButton = getElement<HTMLButtonElement>('#copy-command')
 const copyLabel = getElement<HTMLSpanElement>('#copy-label')
+const downloadButton = getElement<HTMLButtonElement>('#download-button')
+const downloadLabel = getElement<HTMLSpanElement>('#download-label')
+const progressBox = getElement<HTMLDivElement>('#progress')
+const progressFill = getElement<HTMLDivElement>('#progress-fill')
+const progressText = getElement<HTMLParagraphElement>('#progress-text')
 const modeButtons = [...document.querySelectorAll<HTMLButtonElement>('.mode-option')]
 const videoOptions = getElement<HTMLDivElement>('#video-options')
 const audioOptions = getElement<HTMLDivElement>('#audio-options')
@@ -193,6 +205,8 @@ const customPathInput = getElement<HTMLInputElement>('#custom-path')
 const playlistCheckbox = getElement<HTMLInputElement>('#include-playlist')
 
 let mode: DownloadMode = 'video'
+let downloading = false
+let validUrl = false
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
@@ -246,7 +260,12 @@ function buildCommand(url: string): string {
   return `yt-dlp -f ${shellQuote(format)} --merge-output-format ${videoFormatSelect.value}${playlist} ${savePath} ${shellQuote(url)}`
 }
 
+function syncDownloadButton(): void {
+  downloadButton.disabled = !validUrl || downloading
+}
+
 function render(): void {
+  validUrl = false
   const url = urlInput.value.trim()
   clearButton.hidden = url.length === 0
   urlError.hidden = true
@@ -257,12 +276,14 @@ function render(): void {
   if (destinationSelect.value === 'custom' && !destination) {
     commandOutput.textContent = '# Informe uma pasta para salvar o arquivo.'
     copyButton.disabled = true
+    syncDownloadButton()
     return
   }
 
   if (!url) {
     commandOutput.textContent = '# Seu comando aparecerá aqui\n# depois que você colar um link do YouTube.'
     copyButton.disabled = true
+    syncDownloadButton()
     return
   }
 
@@ -272,12 +293,70 @@ function render(): void {
     urlError.textContent = 'Confira o link. Use um endereço youtube.com ou youtu.be de vídeo.'
     urlError.hidden = false
     copyButton.disabled = true
+    syncDownloadButton()
     return
   }
 
+  validUrl = true
   commandOutput.textContent = buildCommand(url)
   copyButton.disabled = false
+  syncDownloadButton()
 }
+
+function showProgress(percent: number, text: string, isError = false): void {
+  progressBox.hidden = false
+  progressFill.style.width = `${percent}%`
+  progressBox.classList.toggle('error', isError)
+  progressText.textContent = text
+}
+
+const sleep = (ms: number) => new Promise((done) => window.setTimeout(done, ms))
+
+async function startDownload(): Promise<void> {
+  downloading = true
+  downloadLabel.textContent = 'Baixando…'
+  syncDownloadButton()
+  showProgress(2, 'Iniciando…')
+
+  try {
+    const response = await fetch('/api/downloads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: urlInput.value.trim(),
+        mode,
+        resolution: resolutionSelect.value,
+        format: mode === 'audio' ? audioFormatSelect.value : videoFormatSelect.value,
+      }),
+    })
+    const created = await response.json() as { id?: string, error?: string }
+    if (!response.ok || !created.id) throw new Error(created.error ?? 'Não foi possível iniciar o download.')
+
+    for (;;) {
+      await sleep(1000)
+      const poll = await fetch(`/api/downloads/${created.id}`)
+      const state = await poll.json() as { status?: string, progress?: number, message?: string, error?: string }
+      if (!poll.ok) throw new Error(state.error ?? 'Falha ao consultar o download.')
+      if (state.status === 'error') throw new Error(state.message)
+      if (state.status === 'done') {
+        showProgress(100, 'Pronto! Seu download começou no navegador.')
+        const link = document.createElement('a')
+        link.href = `/api/downloads/${created.id}/file`
+        link.click()
+        break
+      }
+      showProgress(Math.max(2, state.progress ?? 0), `${state.message ?? 'Baixando…'} ${Math.round(state.progress ?? 0)}%`)
+    }
+  } catch (error) {
+    showProgress(100, error instanceof Error ? error.message : 'Erro inesperado.', true)
+  } finally {
+    downloading = false
+    downloadLabel.textContent = 'Baixar agora'
+    syncDownloadButton()
+  }
+}
+
+downloadButton.addEventListener('click', () => { void startDownload() })
 
 urlInput.addEventListener('input', render)
 urlInput.addEventListener('paste', () => requestAnimationFrame(render))
