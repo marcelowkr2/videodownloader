@@ -84,6 +84,8 @@ def resolve_destination(raw):
 
 
 def friendly_error(stderr):
+    if re.search(r"requested format is not available", stderr, re.I):
+        return "Não há formato compatível disponível. Tente outra resolução ou MKV."
     if re.search(r"private|unavailable|removed|not available", stderr, re.I):
         return "Vídeo privado ou indisponível."
     if re.search(r"ffmpeg|ffprobe", stderr, re.I):
@@ -107,9 +109,14 @@ def build_args(ytdlp, job, url, mode, resolution, fmt, playlist):
     if mode == "audio":
         args += ["-x", "--audio-format", fmt]
     else:
-        selector = "bv*+ba/b" if resolution == "best" else (
-            f"bv*[height<={resolution}]+ba/b[height<={resolution}]"
-        )
+        height = "" if resolution == "best" else f"[height<={resolution}]"
+        if fmt == "mp4":
+            selector = (
+                f"bv[vcodec^=avc1]{height}+ba[acodec^=mp4a]"
+                f"/b[vcodec^=avc1][acodec^=mp4a]{height}"
+            )
+        else:
+            selector = f"bv*{height}+ba/b{height}"
         args += ["-f", selector, "--merge-output-format", fmt]
     return args + ["--", url]
 

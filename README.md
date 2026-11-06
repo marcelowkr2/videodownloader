@@ -41,4 +41,6 @@ O código está em [public/agent/](public/agent).
 
 É necessário ter o `yt-dlp` instalado. A mesclagem de formatos e a conversão de áudio podem exigir o FFmpeg. A pasta de destino precisa existir. Consulte a [instalação oficial do yt-dlp](https://github.com/yt-dlp/yt-dlp#installation).
 
+Para MP4, a aplicação seleciona vídeo H.264 e áudio AAC para maior compatibilidade com reprodutores. A resolução máxima disponível pode ser menor que a escolhida; se esses codecs não estiverem disponíveis, tente MKV. O parâmetro `index` de um link não altera o vídeo baixado quando a opção de playlist está desmarcada.
+
 Baixe somente conteúdos que você criou ou para os quais tem autorização, respeitando os direitos autorais e os termos da plataforma.

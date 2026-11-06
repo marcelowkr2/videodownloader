@@ -124,9 +124,10 @@ function buildArgs(job: Job, url: string, mode: Mode, resolution: string, format
   if (mode === 'audio') {
     return ['-x', '--audio-format', format, ...common, '--', url]
   }
-  const selector = resolution === 'best'
-    ? 'bv*+ba/b'
-    : `bv*[height<=${resolution}]+ba/b[height<=${resolution}]`
+  const height = resolution === 'best' ? '' : `[height<=${resolution}]`
+  const selector = format === 'mp4'
+    ? `bv[vcodec^=avc1]${height}+ba[acodec^=mp4a]/b[vcodec^=avc1][acodec^=mp4a]${height}`
+    : `bv*${height}+ba/b${height}`
   return ['-f', selector, '--merge-output-format', format, ...common, '--', url]
 }
 
@@ -173,6 +174,7 @@ function runJob(job: Job, url: string, mode: Mode, resolution: string, format: s
 }
 
 function friendlyError(stderr: string): string {
+  if (/requested format is not available/i.test(stderr)) return 'Não há formato compatível disponível. Tente outra resolução ou MKV.'
   if (/does not pass filter|duration/i.test(stderr)) return `O vídeo é maior que o limite de ${Math.floor(MAX_DURATION_S / 60)} minutos.`
   if (/larger than max-filesize|File is larger/i.test(stderr)) return `O arquivo excede o limite de ${MAX_FILESIZE}.`
   if (/cookies.*(expired|no longer valid)|rotated/i.test(stderr)) return 'Os cookies do servidor expiraram. Use o comando no terminal.'

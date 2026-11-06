@@ -85,6 +85,7 @@ app.innerHTML = `
                 </select>
                 <span aria-hidden="true">⌄</span>
               </div>
+              <p class="field-hint">MP4 usa H.264/AAC para maior compatibilidade; a resolução pode ser menor.</p>
             </div>
           </div>
 
@@ -265,9 +266,10 @@ function buildCommand(url: string): string {
   }
 
   const resolution = resolutionSelect.value
-  const format = resolution === 'best'
-    ? 'bv*+ba/b'
-    : `bv*[height<=${resolution}]+ba/b[height<=${resolution}]`
+  const height = resolution === 'best' ? '' : `[height<=${resolution}]`
+  const format = videoFormatSelect.value === 'mp4'
+    ? `bv[vcodec^=avc1]${height}+ba[acodec^=mp4a]/b[vcodec^=avc1][acodec^=mp4a]${height}`
+    : `bv*${height}+ba/b${height}`
   return `yt-dlp -f ${shellQuote(format)} --merge-output-format ${videoFormatSelect.value}${playlist} ${savePath} ${shellQuote(url)}`
 }
 
